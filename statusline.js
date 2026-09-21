@@ -86,6 +86,7 @@ function dur(ms) {
 // green→yellow below `warn`, orange from `warn`, pulsing red from `crit`.
 const LIMIT_WARN = 80, LIMIT_CRIT = 90; // 5h / 7d / spend
 const CTX_WARN = 40, CTX_CRIT = 60;     // context window
+const CACHE_WARN_MS = 10 * 60e3;        // prompt cache expiring soon
 const levelColor = (p, warn, crit) => (p >= crit ? pulse(C.alarm) : p >= warn ? C.orange : lerp(C.green, C.yellow, p / warn));
 const limitColor = (p) => levelColor(p, LIMIT_WARN, LIMIT_CRIT);
 
@@ -264,9 +265,17 @@ const pc = input.prompt_cache;
 if (pc && pc.caching_observed !== false && pc.hit_ratio != null) {
   const left = pc.expires_at ? pc.expires_at * 1000 - now : 0;
   const warm = pc.warm && left > 0;
-  const col = warm ? (left < 60e3 ? pulse(C.peach) : C.teal) : C.sub;
-  l2.push(paint(C.sub, "cache ") + paint(col, `${warm ? "●" : "○"} ${Math.round(pc.hit_ratio * 100)}%`) +
-    (warm ? paint(C.sub, ` ${left < 60e3 ? Math.ceil(left / 1000) + "s" : dur(left)}`) : paint(C.sub, " cold")));
+  const pct = `${Math.round(pc.hit_ratio * 100)}%`;
+  if (!warm) {
+    // Cold cache: a ping ring expanding once per second.
+    const PING = ["•", "●", "◉", "◎", "○", " "];
+    const col = tick % PING.length < 3 ? C.alarm : lerp(C.alarm, C.sep, 0.5);
+    l2.push(paint(C.sub, "cache ") + paint(col, PING[tick % PING.length] + " " + pct) + bold(paint(pulse(C.alarm), " cold")));
+  } else {
+    const col = left < CACHE_WARN_MS ? pulse(C.alarm) : C.teal;
+    l2.push(paint(C.sub, "cache ") + paint(col, `● ${pct}`) +
+      paint(left < CACHE_WARN_MS ? col : C.sub, ` ${left < 60e3 ? Math.ceil(left / 1000) + "s" : dur(left)}`));
+  }
 }
 
 if (cost.total_api_duration_ms) l2.push(paint(C.sub, "api ") + paint(C.sky, dur(cost.total_api_duration_ms)));

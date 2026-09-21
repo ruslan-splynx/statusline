@@ -83,10 +83,11 @@ function dur(ms) {
   if (h) return `${h}h${String(m % 60).padStart(2, "0")}m`;
   return `${m}m`;
 }
-const pctColor = (p) => (p >= 90 ? pulse(C.red) : heat(p / 100));
-// Rate limits: green→yellow below 80%, orange from 80%, pulsing red from 90%.
-const LIMIT_WARN = 80, LIMIT_CRIT = 90;
-const limitColor = (p) => (p >= LIMIT_CRIT ? pulse(C.alarm) : p >= LIMIT_WARN ? C.orange : lerp(C.green, C.yellow, p / LIMIT_WARN));
+// green→yellow below `warn`, orange from `warn`, pulsing red from `crit`.
+const LIMIT_WARN = 80, LIMIT_CRIT = 90; // 5h / 7d / spend
+const CTX_WARN = 40, CTX_CRIT = 60;     // context window
+const levelColor = (p, warn, crit) => (p >= crit ? pulse(C.alarm) : p >= warn ? C.orange : lerp(C.green, C.yellow, p / warn));
+const limitColor = (p) => levelColor(p, LIMIT_WARN, LIMIT_CRIT);
 
 // ── input ───────────────────────────────────────────────────────────────────
 let input = {};
@@ -226,7 +227,8 @@ if (ctxPct == null && ctxUsed != null) ctxPct = (ctxUsed / ctxSize) * 100;
 const l2 = [];
 if (ctxPct != null) {
   const tok = ctxUsed != null ? paint(C.sub, ` ${ktok(ctxUsed)}/${ktok(ctxSize)}`) : paint(C.sub, ` /${ktok(ctxSize)}`);
-  l2.push(paint(C.txt, "ctx ") + bar(ctxPct) + " " + bold(paint(pctColor(ctxPct), `${Math.round(ctxPct)}%`)) + tok);
+  const cc = levelColor(ctxPct, CTX_WARN, CTX_CRIT);
+  l2.push(paint(C.txt, "ctx ") + bar(ctxPct, 12, ctxPct >= CTX_WARN ? cc : null) + " " + bold(paint(cc, `${Math.round(ctxPct)}%`)) + tok);
 } else {
   l2.push(paint(C.txt, "ctx ") + bar(0) + paint(C.sub, " —"));
 }

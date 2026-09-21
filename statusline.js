@@ -26,6 +26,7 @@ const C = {
   green: [166, 227, 161], yellow: [249, 226, 175], peach: [250, 179, 135],
   red: [243, 139, 168], blue: [137, 180, 250], mauve: [203, 166, 247],
   teal: [148, 226, 213], sky: [137, 220, 235], pink: [245, 194, 231],
+  orange: [255, 150, 60], alarm: [255, 70, 90],
 };
 const paint = (c, s) => fg(...c) + s + R;
 // STATUSLINE_NERD=1 → Nerd Font glyphs; default is plain unicode that renders anywhere.
@@ -49,7 +50,8 @@ const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "�
 const spinner = SPIN[tick % SPIN.length];
 
 // Progress bar with a heat gradient and a shimmer sweeping across the filled part.
-function bar(pct, width = 12) {
+// `solid` overrides the gradient with one color (used for limit warnings).
+function bar(pct, width = 12, solid) {
   const p = Math.max(0, Math.min(100, pct || 0)) / 100;
   const cells = p * width;
   const full = Math.floor(cells);
@@ -57,12 +59,12 @@ function bar(pct, width = 12) {
   const shine = full > 0 ? tick % (full + 6) : -1;
   let out = "";
   for (let i = 0; i < full; i++) {
-    let c = heat((i + 0.5) / width);
+    let c = solid || heat((i + 0.5) / width);
     if (i === shine) c = lerp(c, [255, 255, 255], 0.55);
     else if (Math.abs(i - shine) === 1) c = lerp(c, [255, 255, 255], 0.2);
     out += fg(...c) + "█";
   }
-  if (partial) out += fg(...heat(p)) + partial;
+  if (partial) out += fg(...(solid || heat(p))) + partial;
   const used = full + (partial ? 1 : 0);
   out += fg(...C.sep) + "░".repeat(Math.max(0, width - used));
   return out + R;
@@ -82,6 +84,9 @@ function dur(ms) {
   return `${m}m`;
 }
 const pctColor = (p) => (p >= 90 ? pulse(C.red) : heat(p / 100));
+// Rate limits: green→yellow below 80%, orange from 80%, pulsing red from 90%.
+const LIMIT_WARN = 80, LIMIT_CRIT = 90;
+const limitColor = (p) => (p >= LIMIT_CRIT ? pulse(C.alarm) : p >= LIMIT_WARN ? C.orange : lerp(C.green, C.yellow, p / LIMIT_WARN));
 
 // ── input ───────────────────────────────────────────────────────────────────
 let input = {};
@@ -104,7 +109,8 @@ function costWindows() {
     try { const s = JSON.parse(l); if (now - s.t < LOG_KEEP_MS) samples.push(s); } catch {}
   }
   const last = samples.filter((s) => s.s === sid).pop();
-  if (!last || last.c !== sessionCost || now - last.t > 60e3) {
+  // STATUSLINE_DRY=1 renders without recording (for testing with sample.json).
+  if (process.env.STATUSLINE_DRY !== "1" && (!last || last.c !== sessionCost || now - last.t > 60e3)) {
     const s = { t: now, s: sid, c: sessionCost, d: cost.total_duration_ms || 0 };
     samples.push(s);
     // Compact the log occasionally instead of rewriting it on every call.
@@ -236,13 +242,17 @@ for (const [label, key] of [["5h", "five_hour"], ["7d", "seven_day"], ["spend", 
   const r = rl[key];
   if (!r || r.used_percentage == null) continue;
   const p = r.used_percentage;
-  l2.push(paint(C.txt, label + " ") + bar(p, 10) + " " + bold(paint(pctColor(p), `${Math.round(p)}%`)) + resetIn(r.resets_at));
+  const lc = limitColor(p);
+  l2.push(paint(C.txt, label + " ") + bar(p, 10, p >= LIMIT_WARN ? lc : null) + " " + bold(paint(lc, `${Math.round(p)}%`)) + resetIn(r.resets_at));
 }
 
 // ── money → appended to line 1; cache → line 2 ───────────────────────────────
 const w = costWindows();
 // Current session, then all sessions together in parentheses.
-const spend = (label, mine, all) => paint(C.sub, label + " ") + paint(C.peach, money(mine)) +
+// Session spend above the window's threshold pulses red.
+const SPEND_ALARM = { "1h": 50, "10m": 10 };
+const spend = (label, mine, all) => paint(C.sub, label + " ") +
+  (mine > SPEND_ALARM[label] ? bold(paint(pulse(C.alarm), money(mine))) : paint(C.peach, money(mine))) +
   paint(C.sub, ` (${money(Math.max(all, mine))})`);
 l1.push(paint(C.yellow, "💰") + bold(paint(C.yellow, money(sessionCost))) + "  " +
   spend("1h", w.h1, w.h1All) + "  " + spend("10m", w.m10, w.m10All) +

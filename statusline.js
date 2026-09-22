@@ -287,4 +287,32 @@ if (cost.total_api_duration_ms) {
     (share != null ? " " + paint(sc, `${share}%`) : ""));
 }
 
+// tasks: TaskCreate/TaskUpdate files in ~/.claude/tasks/<session_id>/ — done/total bar + current task.
+function tasks() {
+  const dir = path.join(HOME, ".claude", "tasks", String(sid).replace(/[^A-Za-z0-9_.-]/g, ""));
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith(".json")); } catch { return null; }
+  const list = [];
+  for (const f of files) {
+    try { const t = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); if (t.status !== "deleted") list.push(t); } catch {}
+  }
+  if (!list.length) return null;
+  const done = list.filter((t) => t.status === "completed").length;
+  const active = list.filter((t) => t.status === "in_progress").sort((a, b) => a.id - b.id);
+  const total = list.length;
+  if (done === total) return paint(C.sub, "tasks ") + paint(C.green, `✓ ${total}/${total}`);
+  const open = total - done - active.length;
+  // done/total, then in progress (◐) and open (○) counts.
+  let s = bar((done / total) * 100, 8, C.green) + " " + bold(paint(C.green, `${done}`)) + paint(C.sub, `/${total}`) +
+    (active.length ? " " + paint(C.mauve, `◐${active.length}`) : "") + (open ? " " + paint(C.sub, `○${open}`) : "");
+  if (active.length) {
+    const cur = active[0].activeForm || active[0].subject || "";
+    const label = cur.length > 25 ? cur.slice(0, 24) + "…" : cur;
+    s += " " + paint(C.mauve, spinner) + " " + paint(C.sub, label);
+  }
+  return s;
+}
+const ts = tasks();
+if (ts) l2.push(ts);
+
 process.stdout.write([l1.join(SEP), l2.join(SEP)].join("\n"));

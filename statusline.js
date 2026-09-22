@@ -278,6 +278,13 @@ if (pc && pc.caching_observed !== false && pc.hit_ratio != null) {
   }
 }
 
-if (cost.total_api_duration_ms) l2.push(paint(C.sub, "api ") + paint(C.sky, dur(cost.total_api_duration_ms)));
+// api: time the model was actually generating, and its share of the session's wall time.
+if (cost.total_api_duration_ms) {
+  const wall = cost.total_duration_ms || 0;
+  const share = wall > 60e3 ? Math.min(100, Math.round((cost.total_api_duration_ms / wall) * 100)) : null;
+  const sc = share >= 30 ? C.green : share >= 10 ? C.yellow : C.sub;
+  l2.push(paint(C.sub, "api ") + paint(C.sky, dur(cost.total_api_duration_ms)) +
+    (share != null ? " " + paint(sc, `${share}%`) : ""));
+}
 
 process.stdout.write([l1.join(SEP), l2.join(SEP)].join("\n"));
